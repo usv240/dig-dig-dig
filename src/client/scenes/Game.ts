@@ -60,6 +60,16 @@ const TILE_DEF: Record<
   supply: { hp: 1, shade: 0.95, icon: '🧰', bonusCm: 0 },
 };
 
+/** Shown once, the first time a new-ish player meets each material. */
+const ITEM_HINTS: Partial<Record<TileType, string>> = {
+  clay: 'clay — tougher, 2 taps',
+  rock: 'rock — hard, 3 taps',
+  gem: '💎 gem — bonus depth!',
+  chest: '📦 chest — free treasure!',
+  boulder: '🪨 boulder — big bonus, keep tapping',
+  supply: '🧰 crate — refills your air',
+};
+
 // --- oxygen economy ---
 const O2_MAX = 100;
 const O2_PER_TAP = 0.32; // ~2.5x longer runs
@@ -243,6 +253,8 @@ export class Game extends Scene {
   helpBtn!: Phaser.GameObjects.Text;
   helpGroup: Phaser.GameObjects.GameObject[] = [];
   coachGroup: Phaser.GameObjects.GameObject[] = [];
+  seenTypes = new Set<TileType>();
+  teachItems = false;
   hudPanel!: Phaser.GameObjects.Graphics;
   lastPanelW = 0;
 
@@ -1008,6 +1020,7 @@ export class Game extends Scene {
         this.rush = data.rush;
         this.allTimeFinds = data.allTimeFinds;
         this.allTimeDiggers = data.allTimeDiggers;
+        this.teachItems = data.yourDigsCm < 3000; // still learning (< 30m lifetime)
         this.applyCanaryState();
         this.setO2(this.maxO2());
         this.refreshHud();
@@ -1450,6 +1463,8 @@ export class Game extends Scene {
 
     // the bird checks the new row for gas once the scroll settles
     this.time.delayedCall(260, () => this.warnRowGas());
+    // teach new players what each material is, the first time they meet it
+    this.checkNewItems();
 
     // level up?
     const level = Math.floor(this.activeRow / ROWS_PER_LEVEL);
@@ -1980,6 +1995,49 @@ export class Game extends Scene {
     } else {
       this.peerToast(`🚨 ${CANARY_NAME} FAINTED after ${hours} silent hours. DIG to revive! (+100 grit, 🐤 medal)`, '#ff5f52');
     }
+  }
+
+  /** First time a learner meets a material, point at it once with a short label. */
+  checkNewItems() {
+    if (!this.teachItems || !this.running) return;
+    const tiles = this.rows.get(this.activeRow);
+    if (!tiles) return;
+    for (const tile of tiles) {
+      if (tile.broken || this.seenTypes.has(tile.type)) continue;
+      const hint = ITEM_HINTS[tile.type];
+      if (!hint) continue;
+      // gas is meant to be hidden — only teach it if the Headlamp reveals it
+      if (tile.type === 'gas' && !this.gear.lamp) continue;
+      this.seenTypes.add(tile.type);
+      const tx = this.worldC.x + tile.container.x;
+      const ty = this.worldC.y + tile.container.y;
+      this.itemHint(tx, ty - this.tileSize * 0.42, hint);
+    }
+  }
+
+  /** A little labelled callout that holds long enough to read, then drifts away. */
+  itemHint(x: number, y: number, message: string) {
+    const label = this.add
+      .text(x, y, message, {
+        fontFamily: 'Arial Black',
+        fontSize: 15,
+        color: '#ffe066',
+        backgroundColor: '#000000cc',
+        padding: { x: 8, y: 4 },
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(50);
+    label.setScale(Math.min(1, (this.scale.width * 0.9) / label.width) * 0.9);
+    this.tweens.add({
+      targets: label,
+      y: y - 22,
+      alpha: { from: 1, to: 0 },
+      delay: 1500,
+      duration: 700,
+      ease: 'Quad.easeIn',
+      onComplete: () => label.destroy(),
+    });
   }
 
   /** A healthy bird smells the gas: warns (but doesn't locate) danger in your row. */
