@@ -2800,6 +2800,11 @@ export class Game extends Scene {
   // HUD & RULER
   // ------------------------------------------------------------------
 
+  /** Cap a text object's scale so it never runs past `maxW` on-screen. */
+  fitText(obj: Phaser.GameObjects.Text, maxW: number) {
+    obj.setScale(obj.width > 0 ? Math.min(this.hudScale, maxW / obj.width) : this.hudScale);
+  }
+
   refreshHud() {
     const { width, height } = this.scale;
     this.depthText.setText(`${(this.displayedDepthCm / 100).toFixed(2)} m`);
@@ -2813,9 +2818,11 @@ export class Game extends Scene {
         : `you: ${mine}  ·  today's goal: ${(this.dayCm / 100).toFixed(0)}/${DAILY_GOAL_CM / 100}m`
     );
     this.yourText.setColor(this.rush ? '#ffd700' : '#ffffff');
+    this.fitText(this.yourText, width * 0.96);
     this.diggersText.setText(
       this.diggers > 1 ? `🟢 ${this.diggers} digging now` : '🟢 you are digging'
     );
+    this.fitText(this.diggersText, width * 0.42);
     this.gritText.setText(`🪙 ${this.grit}`);
     const beyondPB = this.bestRunCm > 0 && this.runDepthCm > this.bestRunCm;
     const bestPart =
@@ -2826,6 +2833,7 @@ export class Game extends Scene {
         : ''
     );
     this.runText.setColor(beyondPB ? '#ffd700' : '#ffffff');
+    this.fitText(this.runText, width * 0.9);
     this.drawHudPanel();
 
     this.wall.tilePositionY = this.displayedDepthCm * PX_PER_CM * 0.4;
