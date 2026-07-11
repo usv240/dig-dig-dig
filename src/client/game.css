@@ -1,0 +1,33 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #120d08;
+  overflow: hidden;
+  /* a tapping game must never zoom, scroll, or select */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+#app {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh; /* mobile browser chrome-aware */
+  overflow: hidden;
+}
+
+#game-container {
+  width: 100%;
+  height: 100%;
+}
+
+#game-container canvas {
+  display: block;
+}

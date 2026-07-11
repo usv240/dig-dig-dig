@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <link rel="stylesheet" type="text/css" href="splash.css" />
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, width=device-width, height=device-height, user-scalable=0"
+    />
+    <title>DIG DIG DIG</title>
+  </head>
+  <body class="app">
+    <div class="content">
+      <div class="pick">⛏️</div>
+      <h1 class="title">DIG&nbsp;DIG&nbsp;DIG</h1>
+      <p class="tagline">this community is digging one big hole.</p>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-value" id="depth">—</div>
+          <div class="stat-label">our hole so far</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="diggers">—</div>
+          <div class="stat-label">digging right now</div>
+        </div>
+      </div>
+
+      <p class="history" id="history"></p>
+      <p class="canary" id="canary">🐤</p>
+      <button class="dig-button" id="dig-button">⛏️ DIG</button>
+      <p class="whisper" id="whisper">something is down there.</p>
+    </div>
+    <script type="module" src="splash.ts" defer></script>
+  </body>
+</html>
