@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
 import { connectRealtime } from '@devvit/web/client';
+import { UI_DPR } from '../game';
 import type {
   BuyResponse,
   DigResponse,
@@ -199,7 +200,8 @@ export class Game extends Scene {
 
   /** 60 meters down, the hole keeps its promise. */
   theDoorEvent() {
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     this.cameras.main.shake(600, 0.006);
     this.thud();
     // interactive so taps don't dig through the cutscene; sized generously so a
@@ -260,7 +262,8 @@ export class Game extends Scene {
 
   /** Glass panel sized to the depth block; redrawn only when the width shifts. */
   drawHudPanel() {
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const pw =
       Math.max(this.depthText.displayWidth, this.stratumText.displayWidth + 20, 160) + 44;
     if (Math.abs(pw - this.lastPanelW) < 4) return;
@@ -295,6 +298,18 @@ export class Game extends Scene {
   gridX = 0;
   rowFrame!: Phaser.GameObjects.Rectangle;
   hudScale = 1;
+  // logical (CSS-pixel) view size; the canvas backing store is this × UI_DPR
+  vw = 1024;
+  vh = 768;
+
+  /** Recompute the logical view and point the zoomed camera at it. */
+  setupView() {
+    this.vw = this.scale.width / UI_DPR;
+    this.vh = this.scale.height / UI_DPR;
+    const cam = this.cameras.main;
+    cam.setZoom(UI_DPR);
+    cam.centerOn(this.vw / 2, this.vh / 2);
+  }
 
   /** Fit the tile grid to any screen: phones get full width, desktops a centered column. */
   computeGrid(width: number, height: number) {
@@ -732,11 +747,12 @@ export class Game extends Scene {
   // ------------------------------------------------------------------
 
   create() {
-    const { width, height } = this.scale;
+    // logical CSS-pixel view; canvas backing store is this × UI_DPR (crisp)
+    this.setupView();
+    const width = this.vw;
+    const height = this.vh;
 
-    // Crisp text on HiDPI phones: Phaser renders Text at CSS-pixel resolution by
-    // default, so the browser upscales and blurs it. Wrap the text factory once so
-    // every Text (HUD, overlays, popups) renders at the device's real pixel density.
+    // Text is also rendered at device resolution so it stays crisp under the zoom.
     const textRes = Math.min(3, Math.max(2, Math.round(window.devicePixelRatio || 1)));
     const factory = this.add;
     const makeText = factory.text.bind(factory);
@@ -1057,8 +1073,9 @@ export class Game extends Scene {
     });
 
     this.updateLayout(width, height);
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      this.updateLayout(gameSize.width, gameSize.height);
+    this.scale.on('resize', () => {
+      this.setupView();
+      this.updateLayout(this.vw, this.vh);
     });
   }
 
@@ -1249,7 +1266,7 @@ export class Game extends Scene {
     )
       return;
     const col = Phaser.Math.Clamp(
-      Math.floor((pointer.x - this.gridX) / this.tileSize),
+      Math.floor((pointer.worldX - this.gridX) / this.tileSize),
       0,
       COLS - 1
     );
@@ -1301,12 +1318,12 @@ export class Game extends Scene {
     // juice
     const hard = tile.type === 'rock' || tile.type === 'boulder';
     this.dirtEmitter.setParticleTint(hard ? 0x9a9a9a : this.brighten(this.currentStratum().color));
-    this.dirtEmitter.explode(Phaser.Math.Between(8, 13) + this.multiplier * 2, pointer.x, pointer.y);
+    this.dirtEmitter.explode(Phaser.Math.Between(8, 13) + this.multiplier * 2, pointer.worldX, pointer.worldY);
     this.cameras.main.shake(60, 0.0045 + this.multiplier * 0.0005);
     if (hard) this.thud();
     else this.crunch();
-    this.swingPickaxe(pointer.x, pointer.y);
-    this.impactRing(pointer.x, pointer.y);
+    this.swingPickaxe(pointer.worldX, pointer.worldY);
+    this.impactRing(pointer.worldX, pointer.worldY);
     this.tweens.add({
       targets: tile.container,
       scale: { from: 0.94, to: 1 },
@@ -1354,7 +1371,7 @@ export class Game extends Scene {
     this.dirtEmitter.setParticleTint(
       tile.type === 'gem' ? 0x7de3ff : tile.type === 'chest' ? 0xffd700 : 0xbdbdbd
     );
-    this.dirtEmitter.explode(tile.type === 'dirt' ? 18 : 34, pointer.x, pointer.y);
+    this.dirtEmitter.explode(tile.type === 'dirt' ? 18 : 34, pointer.worldX, pointer.worldY);
 
     // bonuses & hazards
     const gemBonus = GEM_BONUS_CM + (this.gear.magnet ? 10 : 0);
@@ -1363,27 +1380,27 @@ export class Game extends Scene {
       bonus = gemBonus + ROW_CM;
       this.runFinds += 1;
       this.cameras.main.flash(150, 120, 220, 255);
-      this.floatText(pointer.x, pointer.y - 50, `GEM! +${gemBonus} cm`, '#7de3ff', 26);
+      this.floatText(pointer.worldX, pointer.worldY - 50, `GEM! +${gemBonus} cm`, '#7de3ff', 26);
       this.chime('rare');
     } else if (tile.type === 'chest') {
       this.pendingChests += 1;
       this.runFinds += 1;
       this.chestsThisRun += 1;
-      this.floatText(pointer.x, pointer.y - 50, 'CHEST! opening…', '#ffd700', 24);
+      this.floatText(pointer.worldX, pointer.worldY - 50, 'CHEST! opening…', '#ffd700', 24);
       this.chime('uncommon');
     } else if (tile.type === 'boulder') {
       this.bouldersThisRun += 1;
       this.cameras.main.flash(200, 255, 255, 255);
       this.cameras.main.shake(220, 0.012);
-      // impact zoom punch
-      this.cameras.main.zoom = 1.05;
+      // impact zoom punch (base zoom is UI_DPR, so punch relative to it)
+      this.cameras.main.zoom = UI_DPR * 1.05;
       this.tweens.add({
         targets: this.cameras.main,
-        zoom: 1,
+        zoom: UI_DPR,
         duration: 260,
         ease: 'Quad.easeOut',
       });
-      this.floatText(pointer.x, pointer.y - 55, `CRUSHED! +${BOULDER_BONUS_CM} cm`, '#ffffff', 28);
+      this.floatText(pointer.worldX, pointer.worldY - 55, `CRUSHED! +${BOULDER_BONUS_CM} cm`, '#ffffff', 28);
       this.chime('epic');
     } else if (tile.type === 'gas') {
       const hit = this.gear.mask ? Math.ceil(O2_GAS_HIT / 2) : O2_GAS_HIT;
@@ -1392,8 +1409,8 @@ export class Game extends Scene {
       this.cameras.main.flash(220, 90, 200, 90);
       this.cameras.main.shake(180, 0.01);
       this.floatText(
-        pointer.x,
-        pointer.y - 50,
+        pointer.worldX,
+        pointer.worldY - 50,
         this.gear.mask ? `GAS! 😷 -${hit} O₂` : `GAS POCKET! -${hit} O₂`,
         '#7dff7d',
         26
@@ -1404,10 +1421,10 @@ export class Game extends Scene {
       this.tweens.add({ targets: this.comboText, alpha: 0, duration: 150 });
     } else if (tile.type === 'supply') {
       this.setO2(this.o2 + O2_SUPPLY);
-      this.floatText(pointer.x, pointer.y - 50, `SUPPLY CRATE! +${O2_SUPPLY} O₂`, '#7dffa0', 26);
+      this.floatText(pointer.worldX, pointer.worldY - 50, `SUPPLY CRATE! +${O2_SUPPLY} O₂`, '#7dffa0', 26);
       this.chime('uncommon');
     } else {
-      this.floatText(pointer.x, pointer.y - 40, `+${ROW_CM} cm`, '#ffffff', 20);
+      this.floatText(pointer.worldX, pointer.worldY - 40, `+${ROW_CM} cm`, '#ffffff', 20);
     }
 
     this.holeDepthCm += bonus;
@@ -1420,7 +1437,8 @@ export class Game extends Scene {
     this.checkGraves();
 
     // --- score beats: run milestones + the PB moment ---
-    const { width: w, height: h } = this.scale;
+    const w = this.vw;
+    const h = this.vh;
     const mile = Math.floor(this.runDepthCm / 1000);
     if (mile > this.runMilestone) {
       this.runMilestone = mile;
@@ -1470,7 +1488,8 @@ export class Game extends Scene {
     const level = Math.floor(this.activeRow / ROWS_PER_LEVEL);
     if (level > this.runLevel) {
       this.runLevel = level;
-      const { width, height } = this.scale;
+      const width = this.vw;
+    const height = this.vh;
       this.cameras.main.flash(250, 255, 255, 255);
       this.chime('epic');
       this.floatText(width / 2, height * 0.45, `⬇️ LEVEL ${level + 1} ⬇️`, '#ffd700', 38);
@@ -1586,7 +1605,8 @@ export class Game extends Scene {
 
   /** Build (or rebuild, on resize) the death screen from current state. */
   deathUI(instant: boolean) {
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const dim = this.add.rectangle(0, 0, width, height, 0x000000, instant ? 0.88 : 0).setOrigin(0);
     if (!instant) {
       this.tweens.add({ targets: dim, fillAlpha: 0.88, duration: 900, ease: 'Quad.easeIn' });
@@ -1842,7 +1862,8 @@ export class Game extends Scene {
 
   openShop() {
     if (this.shopGroup.length > 0) return;
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
       .rectangle(0, 0, width, height, 0x000000, 0.92)
@@ -2028,7 +2049,7 @@ export class Game extends Scene {
       })
       .setOrigin(0.5)
       .setDepth(50);
-    label.setScale(Math.min(1, (this.scale.width * 0.9) / label.width) * 0.9);
+    label.setScale(Math.min(1, (this.vw * 0.9) / label.width) * 0.9);
     this.tweens.add({
       targets: label,
       y: y - 22,
@@ -2099,7 +2120,8 @@ export class Game extends Scene {
 
   openHelp() {
     if (this.helpGroup.length > 0) return;
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
       .rectangle(0, 0, width, height, 0x0a0a0a, 0.96)
@@ -2171,7 +2193,8 @@ export class Game extends Scene {
 
   showCoach() {
     if (this.coachGroup.length > 0) return;
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
       .rectangle(0, 0, width, height, 0x0a0a0a, 0.93)
@@ -2247,7 +2270,7 @@ export class Game extends Scene {
   showOnboarding() {
     if (this.hasDug || this.onboardGroup.length > 0) return;
     this.hintText.setVisible(false); // onboarding line 1 says the same thing (visible beats the pulse tween)
-    const { width } = this.scale;
+    const width = this.vw;
     const s = this.hudScale;
     const baseY = this.anchorY + this.tileSize + 30 * s;
     const lines = [
@@ -2282,7 +2305,8 @@ export class Game extends Scene {
 
   openLeaderboard() {
     if (this.lbGroup.length > 0) return;
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
       .rectangle(0, 0, width, height, 0x000000, 0.9)
@@ -2368,7 +2392,8 @@ export class Game extends Scene {
 
   openMuseum() {
     if (this.museumGroup.length > 0) return;
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
       .rectangle(0, 0, width, height, 0x000000, 0.9)
@@ -2451,7 +2476,8 @@ export class Game extends Scene {
     if (!entry || this.runDepthCm < entry[0]) return;
     this.loreIndex += 1;
 
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const text = this.add
       .text(width / 2, height * 0.47, entry[1], {
         fontFamily: 'Georgia, serif',
@@ -2527,7 +2553,8 @@ export class Game extends Scene {
       this.refreshHud();
       this.cameras.main.flash(400, 255, 215, 0);
       this.chime('legendary');
-      const { width, height } = this.scale;
+      const width = this.vw;
+    const height = this.vh;
       const banner = this.add
         .text(width / 2, height * 0.45, `⚡ GOLD RUSH! ⚡\n2× grit until midnight`, {
           fontFamily: 'Arial Black',
@@ -2573,7 +2600,8 @@ export class Game extends Scene {
         this.chime(event.find.rarity);
       }
     } else if (event.kind === 'milestone') {
-      const { width, height } = this.scale;
+      const width = this.vw;
+    const height = this.vh;
       this.cameras.main.flash(400, 255, 215, 0);
       this.chime('legendary');
       const banner = this.add
@@ -2609,7 +2637,7 @@ export class Game extends Scene {
 
   /** Small event toast on the left edge — the "other people are here" ticker. */
   peerToast(message: string, color: string) {
-    const { height } = this.scale;
+    const height = this.vh;
     const t = this.add
       .text(12, height * 0.82, message, {
         fontFamily: 'Arial',
@@ -2617,7 +2645,7 @@ export class Game extends Scene {
         color,
         stroke: '#000000',
         strokeThickness: 4,
-        wordWrap: { width: this.scale.width * 0.7 },
+        wordWrap: { width: this.vw * 0.7 },
       })
       .setOrigin(0, 1)
       .setAlpha(0);
@@ -2723,7 +2751,8 @@ export class Game extends Scene {
     if (!find) return;
     this.showingFind = true;
 
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     const color = RARITY_COLORS[find.rarity];
     const isBig = find.rarity !== 'common';
 
@@ -2803,7 +2832,7 @@ export class Game extends Scene {
         strokeThickness: 6,
       })
       .setOrigin(0.5);
-    t.setScale(Math.min(1, (this.scale.width * 0.94) / t.width));
+    t.setScale(Math.min(1, (this.vw * 0.94) / t.width));
     this.tweens.add({
       targets: t,
       y: y - 70,
@@ -2864,7 +2893,8 @@ export class Game extends Scene {
   }
 
   refreshHud() {
-    const { width, height } = this.scale;
+    const width = this.vw;
+    const height = this.vh;
     this.depthText.setText(`${(this.displayedDepthCm / 100).toFixed(2)} m`);
     const mine =
       this.yourDigsCm >= 100
@@ -2944,7 +2974,7 @@ export class Game extends Scene {
   }
 
   updateLayout(width: number, height: number) {
-    this.cameras.resize(width, height);
+    // camera viewport + zoom are owned by setupView(); don't resize it here
     this.wall.setSize(width, height);
     this.vignette
       .setPosition(width / 2, height / 2)
