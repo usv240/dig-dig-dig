@@ -96,7 +96,7 @@ protection. The community keeps the bird alive; the bird keeps the community ali
 - App listing: https://developers.reddit.com/apps/dig-dig-dig
 - Demo post (permanent, v0.0.5 approved): https://www.reddit.com/r/DigDigDigGame/comments/1ut53gm/dig_dig_dig_we_are_digging_one_big_hole_tap_to/
 - Test subreddit: https://www.reddit.com/r/DigDigDigGame
-- Repo: (GitHub URL if made public)
+- Repo: https://github.com/usv240/dig-dig-dig
 - Video: (YouTube URL)
 
 ---
