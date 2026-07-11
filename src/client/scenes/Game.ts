@@ -819,16 +819,16 @@ export class Game extends Scene {
     });
 
     for (let i = 0; i < 14; i++) {
-      const line = this.add.rectangle(0, -100, 26, 3, 0xffffff, 0.55).setOrigin(0, 0.5);
+      const line = this.add.rectangle(0, -100, 22, 3, 0xffffff, 0.55).setOrigin(0, 0.5);
       const label = this.add
         .text(0, -100, '', {
           fontFamily: 'Arial Black',
-          fontSize: 17,
+          fontSize: 15,
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 3,
         })
-        .setOrigin(0, 0.5)
+        .setOrigin(1, 0.5) // right-aligned so deep (4-digit) labels never run off-frame
         .setAlpha(0.72);
       this.rulerMarks.push({ line, label });
     }
@@ -2861,11 +2861,12 @@ export class Game extends Scene {
         mark.label.setVisible(false);
         continue;
       }
-      mark.line.setVisible(true).setPosition(width - 88, y);
+      // label right-aligned near the edge; tick sits just to its left
+      mark.line.setVisible(true).setPosition(width - 74, y);
       mark.label
         .setVisible(true)
-        .setText(`${meter} m`)
-        .setPosition(width - 56, y);
+        .setText(`${meter}m`)
+        .setPosition(width - 8, y);
     }
   }
 
@@ -2894,7 +2895,8 @@ export class Game extends Scene {
     this.rowFrame
       .setPosition(this.gridX, this.anchorY)
       .setSize(COLS * this.tileSize, this.tileSize);
-    this.canaryC.setPosition(Math.max(30, this.gridX + 26), this.anchorY - 22);
+    // keep Pip fully on-screen — the beak points left, so it needs left margin
+    this.canaryC.setPosition(Math.max(52, this.gridX + 24), this.anchorY - 22);
 
     // any open overlays are position-stale — close them (they're one tap to reopen)
     if (this.shopGroup.length > 0) {
