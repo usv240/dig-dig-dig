@@ -11,6 +11,7 @@ import type {
   Gear,
   InitResponse,
   LeaderboardResponse,
+  LeaderboardScope,
   LiveEvent,
   MuseumResponse,
   RunEndResponse,
@@ -1589,7 +1590,7 @@ export class Game extends Scene {
     const d = this.lastRunEnd;
     if (!d) return '';
     const lines = [
-      `👑 today: u/${d.todayBestUser} · ${(d.todayBestCm / 100).toFixed(1)}m`,
+      `👑 today: u/${d.todayBestUser} · ${(d.todayBestCm / 100).toFixed(1)}m  🏆 tap ›`,
       `your best: ${(d.bestRunCm / 100).toFixed(1)}m${d.isPB ? '  🏆 NEW PB!' : ''}`,
       `💰 +${d.gritEarned} grit${d.streak > 1 ? `  ·  🔥 ${d.streak}-day streak` : ''}`,
     ];
@@ -1655,7 +1656,9 @@ export class Game extends Scene {
       })
       .setOrigin(0.5)
       .setScale(s)
-      .setAlpha(0);
+      .setAlpha(0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openLeaderboard());
     put(best);
     this.deathBestText = best;
 
@@ -2309,39 +2312,65 @@ export class Game extends Scene {
     const height = this.vh;
     const s = Math.min(width / 640, 1);
     const dim = this.add
-      .rectangle(0, 0, width, height, 0x000000, 0.9)
+      .rectangle(0, 0, width, height, 0x000000, 0.92)
       .setOrigin(0)
       .setInteractive();
     const title = this.add
-      .text(width / 2, height * 0.09, "🏆 TODAY'S DEEPEST", {
+      .text(width / 2, height * 0.07, '🏆 LEADERBOARD', {
         fontFamily: 'Arial Black',
-        fontSize: 28,
+        fontSize: 26,
         color: '#ffd700',
         stroke: '#000000',
         strokeThickness: 6,
       })
       .setOrigin(0.5)
       .setScale(s);
-    const list = this.add
-      .text(width / 2, height * 0.46, 'measuring the depths…', {
-        fontFamily: 'Arial',
-        fontSize: 18,
-        color: '#ffffff',
-        align: 'left',
-        lineSpacing: 10,
-      })
-      .setOrigin(0.5)
-      .setScale(s);
-    const you = this.add
-      .text(width / 2, height * 0.8, '', {
+
+    // --- TODAY / ALL-TIME tabs ---
+    let scope: LeaderboardScope = 'today';
+    let loadToken = 0;
+    const tabToday = this.add
+      .text(width / 2 - 8, height * 0.14, 'TODAY', {
         fontFamily: 'Arial Black',
         fontSize: 18,
+        color: '#ffd700',
+        padding: { x: 12, y: 6 },
+      })
+      .setOrigin(1, 0.5)
+      .setScale(s)
+      .setInteractive({ useHandCursor: true });
+    const tabAll = this.add
+      .text(width / 2 + 8, height * 0.14, 'ALL-TIME', {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#7a6f5f',
+        padding: { x: 12, y: 6 },
+      })
+      .setOrigin(0, 0.5)
+      .setScale(s)
+      .setInteractive({ useHandCursor: true });
+
+    const list = this.add
+      .text(width / 2, height * 0.2, 'measuring the depths…', {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        color: '#ffffff',
+        align: 'left',
+        lineSpacing: 6,
+      })
+      .setOrigin(0.5, 0)
+      .setScale(s);
+    const you = this.add
+      .text(width / 2, height * 0.85, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 17,
         color: '#7dffa0',
+        align: 'center',
       })
       .setOrigin(0.5)
       .setScale(s);
     const close = this.add
-      .text(width / 2, height * 0.9, '✕ CLOSE', {
+      .text(width / 2, height * 0.93, '✕ CLOSE', {
         fontFamily: 'Arial Black',
         fontSize: 22,
         color: '#ffffff',
@@ -2355,35 +2384,69 @@ export class Game extends Scene {
         for (const obj of this.lbGroup) obj.destroy();
         this.lbGroup = [];
       });
-    this.lbGroup = [dim, title, list, you, close];
+    this.lbGroup = [dim, title, tabToday, tabAll, list, you, close];
 
-    void (async () => {
-      try {
-        const response = await fetch(`/api/leaderboard?day=${isoDay(this.runDayNum)}`);
-        if (!response.ok) throw new Error('leaderboard fetch failed');
-        const data = (await response.json()) as LeaderboardResponse;
-        const hint = '(a run posts here when you black out)';
-        if (data.entries.length === 0) {
-          list.setText(`no runs finished today yet.\nblack out and your depth tops the board!\n\n${hint}`);
-          return;
-        }
-        const medals = ['🥇', '🥈', '🥉'];
-        const lines = data.entries.map((e, i) => {
-          const badge = medals[i] ?? ` ${i + 1}.`;
-          const self = e.user === this.username ? '  ◀ you' : '';
-          return `${badge} u/${e.user} — ${(e.depthCm / 100).toFixed(1)}m${self}`;
-        });
-        lines.push(`\n${hint}`);
-        list.setText(lines.join('\n'));
-        if (data.yourRank > 0) {
-          you.setText(`your rank today: #${data.yourRank} · ${(data.yourBestCm / 100).toFixed(1)}m`);
-        } else {
-          you.setText('finish a run to claim your rank →');
-        }
-      } catch {
-        list.setText('the board is buried. try again.');
+    const render = (data: LeaderboardResponse) => {
+      const medals = ['🥇', '🥈', '🥉'];
+      if (data.entries.length === 0) {
+        list.setText(
+          scope === 'today'
+            ? 'no runs finished today yet.\nblack out and your depth tops the board!'
+            : 'no diggers ranked yet.\nstart digging to claim a spot!'
+        );
+        you.setText('');
+        return;
       }
-    })();
+      const lines = data.entries.map((e, i) => {
+        const badge = medals[i] ?? `${i + 1}.`.padEnd(3, ' ');
+        const self = e.user === this.username ? '  ◀ you' : '';
+        return `${badge} u/${e.user} — ${(e.depthCm / 100).toFixed(1)}m${self}`;
+      });
+      list.setText(lines.join('\n'));
+      const label = scope === 'today' ? 'today' : 'all-time';
+      if (data.yourRank > 0) {
+        you.setText(
+          `your ${label} rank: #${data.yourRank} of ${data.total} · ${(data.yourBestCm / 100).toFixed(1)}m`
+        );
+      } else {
+        you.setText(
+          scope === 'today'
+            ? 'finish a run to claim your rank →'
+            : 'dig your first meter to join the ladder →'
+        );
+      }
+    };
+
+    const load = (next: LeaderboardScope) => {
+      scope = next;
+      tabToday.setColor(scope === 'today' ? '#ffd700' : '#7a6f5f');
+      tabAll.setColor(scope === 'alltime' ? '#ffd700' : '#7a6f5f');
+      list.setText('measuring the depths…');
+      you.setText('');
+      const token = ++loadToken;
+      void (async () => {
+        try {
+          const response = await fetch(
+            `/api/leaderboard?scope=${scope}&day=${isoDay(this.runDayNum)}`
+          );
+          if (!response.ok) throw new Error('leaderboard fetch failed');
+          const data = (await response.json()) as LeaderboardResponse;
+          if (token !== loadToken || this.lbGroup.length === 0) return; // tab switched / closed
+          render(data);
+        } catch {
+          if (token === loadToken) list.setText('the board is buried. try again.');
+        }
+      })();
+    };
+
+    tabToday.on('pointerdown', () => {
+      if (scope !== 'today') load('today');
+    });
+    tabAll.on('pointerdown', () => {
+      if (scope !== 'alltime') load('alltime');
+    });
+
+    load('today');
   }
 
   // ------------------------------------------------------------------

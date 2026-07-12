@@ -9,6 +9,7 @@ import type {
   Gear,
   InitResponse,
   LeaderboardResponse,
+  LeaderboardScope,
   Legend,
   LiveEvent,
   MuseumResponse,
@@ -92,6 +93,21 @@ async function identity(): Promise<{ uid: string; name: string; loggedIn: boolea
     return { uid: `anon:${t2}`, name: `stranger-${short}`, loggedIn: false };
   }
   return { uid: 'anonymous', name: 'a-stranger', loggedIn: false };
+}
+
+/**
+ * A display name for a leaderboard row when `lb:names` has no stored name yet
+ * (e.g. an anon digger who dug before names were saved on every dig). Derives a
+ * stable, distinct label from the uid so distinct diggers don't all collapse
+ * into one generic "a-stranger" row.
+ */
+function fallbackName(uid: string): string {
+  if (uid.startsWith('anon:')) {
+    const short = uid.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || 'anon';
+    return `stranger-${short}`;
+  }
+  if (uid === 'anonymous') return 'a-stranger';
+  return uid; // a username with no cached name — safe to show as-is
 }
 
 /** Mark this user as actively present and return how many are here right now. */
@@ -458,6 +474,8 @@ api.post('/dig', async (c) => {
       touchPresence(who.uid),
       redis.hIncrBy(metaKey(who.uid), 'grit', gritGain),
       redis.zIncrBy(KEY_LB, who.uid, cm),
+      // keep the all-time board's names fresh even for diggers who never black out
+      redis.hSet('lb:names', { [who.uid]: who.name }).catch(() => 0),
       finds.length > 0
         ? redis.zAdd(
             KEY_MUSEUM,
@@ -648,19 +666,27 @@ api.get('/epitaphs', async (c) => {
   }
 });
 
-/** Today's deepest runs — the ladder players climb. */
+/**
+ * The leaderboard. Two scopes share one endpoint:
+ *   today   → deepest single run in today's seeded mine (a fair daily race)
+ *   alltime → deepest lifetime digger ever (the community's forever ladder)
+ * Both are keyed by uid so distinct players never collide, with names resolved
+ * from the `lb:names` hash. `yourRank` comes from the whole set, not just the
+ * visible top, so everyone has a standing even outside the top rows.
+ */
+const LB_TOP = 15;
 api.get('/leaderboard', async (c) => {
+  const scope: LeaderboardScope = c.req.query('scope') === 'alltime' ? 'alltime' : 'today';
   try {
     const day = pinnedDay(c.req.query('day'));
     const who = await identity();
-    const key = `lb:run:${day}`;
-    const top = await redis.zRange(key, 0, 9, { by: 'rank', reverse: true });
+    const key = scope === 'alltime' ? KEY_LB : `lb:run:${day}`;
+    const top = await redis.zRange(key, 0, LB_TOP - 1, { by: 'rank', reverse: true });
     // members are uids; resolve to display names
     const names = await Promise.all(
       top.map((r) => redis.hGet('lb:names', r.member).catch(() => undefined))
     );
-    const entries = top.map((r, i) => ({ user: names[i] ?? 'a-stranger', depthCm: r.score }));
-    // your rank comes from the whole set, not just the visible top 10
+    const entries = top.map((r, i) => ({ user: names[i] ?? fallbackName(r.member), depthCm: r.score }));
     const [yourScore, ascRank, total] = await Promise.all([
       redis.zScore(key, who.uid).catch(() => undefined),
       redis.zRank(key, who.uid).catch(() => undefined),
@@ -668,16 +694,20 @@ api.get('/leaderboard', async (c) => {
     ]);
     return c.json<LeaderboardResponse>({
       type: 'leaderboard',
+      scope,
       entries,
       yourBestCm: yourScore ?? 0,
       yourRank: ascRank !== undefined ? total - ascRank : 0,
+      total,
     });
   } catch {
     return c.json<LeaderboardResponse>({
       type: 'leaderboard',
+      scope,
       entries: [],
       yourBestCm: 0,
       yourRank: 0,
+      total: 0,
     });
   }
 });

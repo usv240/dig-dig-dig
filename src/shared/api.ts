@@ -59,11 +59,14 @@ export type EpitaphsResponse = { type: 'epitaphs'; epitaphs: Epitaph[] };
 export type MuseumResponse = { type: 'museum'; finds: Find[]; legends: Legend[] };
 
 export type LeaderboardEntry = { user: string; depthCm: number };
+export type LeaderboardScope = 'today' | 'alltime';
 export type LeaderboardResponse = {
   type: 'leaderboard';
+  scope: LeaderboardScope;
   entries: LeaderboardEntry[];
   yourBestCm: number;
-  yourRank: number; // 1-based; 0 = unranked today
+  yourRank: number; // 1-based; 0 = unranked
+  total: number; // total ranked diggers in this scope
 };
 
 /** Permanent gear — bought with Grit between runs, kept forever. */

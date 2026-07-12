@@ -80,7 +80,9 @@ The game runs entirely inside the post. There is nothing to configure.
 - Live run score chasing your personal best; beat it and the counter turns gold.
 - A grit payout on every run, multiplied by your daily play streak.
 - Eight permanent medals (First Blood, The Hundred, Gasproof, Sprinter, and more).
-- A daily top-10 leaderboard with your rank.
+- A leaderboard with two tabs: TODAY (deepest run in today's mine) and ALL-TIME
+  (deepest lifetime diggers ever), each showing the top 15 plus your own rank out
+  of everyone.
 - Five permanent upgrades bought with grit: bigger oxygen tank, a headlamp that
   reveals gas, a gem magnet, a gas mask, and an espresso that lengthens your combo.
 
