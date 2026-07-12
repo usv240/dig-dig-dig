@@ -58,6 +58,10 @@ protection. The community keeps the bird alive; the bird keeps the community ali
 
 ### The Reddit-native layer
 
+- **Every subreddit digs its own hole** — install it anywhere and that community gets a
+  completely separate hole, leaderboard, museum, and canary (state is isolated per
+  installation). The depth on screen belongs to *that* subreddit alone: one community,
+  one permanent monument, and natural sub-vs-sub bragging rights.
 - **Ranks are real subreddit flair** — Worm → Mole → Badger → Excavator → Tunnel Titan →
   Core Dweller, visible on every comment you write.
 - **Epitaphs** — when you black out, your last words are buried at your death depth.
