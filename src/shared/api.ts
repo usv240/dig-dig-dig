@@ -160,6 +160,8 @@ export type RunEndResponse = {
   streak: number;
   isPB: boolean;
   bestRunCm: number;
+  yourRank: number; // your standing on today's board, 1-based; 0 = unranked
+  total: number; // how many diggers finished a run today
   ach: string[];
 };
 

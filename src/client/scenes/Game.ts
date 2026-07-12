@@ -162,7 +162,8 @@ export class Game extends Scene {
 
   // the descent (per-run state)
   o2 = O2_MAX;
-  running = true;
+  running = false; // no digging until the player taps START on the home screen
+  initLoaded = false; // /api/init has returned — home screen can show real numbers
   runDepthCm = 0;
   runFinds = 0;
   loreIndex = 0;
@@ -934,11 +935,15 @@ export class Game extends Scene {
       .setAlpha(0.95)
       .setShadow(0, 2, '#000000', 4);
 
-    // oxygen gauge (top right)
-    this.o2BarBg = this.add.rectangle(0, 0, 134, 16, 0x000000, 0.55).setOrigin(0, 0.5);
-    this.o2BarFill = this.add.rectangle(0, 0, 130, 12, 0x54d16a).setOrigin(0, 0.5);
+    // oxygen gauge (top right) — a lung icon + outlined bar so it reads as your
+    // AIR supply, not a generic health bar
+    this.o2BarBg = this.add
+      .rectangle(0, 0, 138, 20, 0x000000, 0.6)
+      .setOrigin(0, 0.5)
+      .setStrokeStyle(2, 0xffffff, 0.35);
+    this.o2BarFill = this.add.rectangle(0, 0, 134, 16, 0x54d16a).setOrigin(0, 0.5);
     this.o2Label = this.add
-      .text(0, 0, `O₂ ${O2_MAX}`, { fontFamily: 'Arial Black', fontSize: 14, color: '#ffffff' })
+      .text(0, 0, `🫁 ${O2_MAX}`, { fontFamily: 'Arial Black', fontSize: 16, color: '#ffffff' })
       .setOrigin(1, 0.5)
       .setShadow(0, 2, '#000000', 4);
 
@@ -1020,6 +1025,11 @@ export class Game extends Scene {
       }
     );
 
+    // show the home screen from the very first frame so there is never a window
+    // where the raw mine is visible/tappable before init returns (it refreshes
+    // with real numbers once /api/init lands)
+    this.showHome(false);
+
     void (async () => {
       try {
         const response = await fetch('/api/init');
@@ -1048,7 +1058,14 @@ export class Game extends Scene {
         this.updateLight(); // now that gear (headlamp) is known
         this.connectLive(data.postId);
         void this.loadEpitaphs();
-        this.showHome(data.yourDigsCm === 0);
+        // refresh the home screen with real numbers — but only if the player
+        // hasn't already tapped START and begun digging
+        this.initLoaded = true;
+        if (this.coachGroup.length > 0) {
+          for (const obj of this.coachGroup) obj.destroy();
+          this.coachGroup = [];
+          this.showHome(data.yourDigsCm === 0);
+        }
         this.time.delayedCall(600, () => this.warnRowGas());
       } catch (error) {
         console.error('Failed to fetch initial state:', error);
@@ -1519,15 +1536,12 @@ export class Game extends Scene {
 
   setO2(value: number) {
     this.o2 = Phaser.Math.Clamp(value, 0, this.maxO2());
-    const w = 130 * (this.o2 / this.maxO2());
-    this.o2BarFill.setSize(Math.max(1, w), 12);
+    const w = 134 * (this.o2 / this.maxO2());
+    this.o2BarFill.setSize(Math.max(1, w), 16);
     this.o2BarFill.fillColor = this.o2 > 50 ? 0x54d16a : this.o2 > 25 ? 0xffb44d : 0xff5f52;
-    this.o2Label.setText(`O₂ ${Math.ceil(this.o2)}`);
-    if (this.o2 <= 25 && this.running) {
-      this.o2Label.setColor('#ff5f52');
-    } else {
-      this.o2Label.setColor('#ffffff');
-    }
+    const low = this.o2 <= 25 && this.running;
+    this.o2Label.setText(`🫁 ${Math.ceil(this.o2)}${low ? ' LOW!' : ''}`);
+    this.o2Label.setColor(low ? '#ff5f52' : '#ffffff');
     // note: death is NOT triggered here — tapTile checks o2 after the tap fully
     // resolves, so blackout never fires mid-handler with work still queued.
   }
@@ -1589,11 +1603,14 @@ export class Game extends Scene {
   deathSummary(): string {
     const d = this.lastRunEnd;
     if (!d) return '';
-    const lines = [
-      `👑 today: u/${d.todayBestUser} · ${(d.todayBestCm / 100).toFixed(1)}m  🏆 tap ›`,
+    const lines: string[] = [];
+    if (d.yourRank > 0) {
+      lines.push(`🏆 today's rank: #${d.yourRank} of ${d.total}`);
+    }
+    lines.push(
       `your best: ${(d.bestRunCm / 100).toFixed(1)}m${d.isPB ? '  🏆 NEW PB!' : ''}`,
-      `💰 +${d.gritEarned} grit${d.streak > 1 ? `  ·  🔥 ${d.streak}-day streak` : ''}`,
-    ];
+      `💰 +${d.gritEarned} grit${d.streak > 1 ? `  ·  🔥 ${d.streak}-day streak` : ''}`
+    );
     if (this.newMedals.length > 0) {
       lines.push(
         `🏅 ${this.newMedals.map((id) => `${ACHIEVEMENTS[id]?.emoji} ${ACHIEVEMENTS[id]?.name}`).join('   ')}`
@@ -1656,9 +1673,7 @@ export class Game extends Scene {
       })
       .setOrigin(0.5)
       .setScale(s)
-      .setAlpha(0)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.openLeaderboard());
+      .setAlpha(0);
     put(best);
     this.deathBestText = best;
 
@@ -1714,6 +1729,22 @@ export class Game extends Scene {
       });
     }
 
+    // the full board (today + all-time) is one clear tap away
+    const lbBtn = this.add
+      .text(width / 2, height * 0.635, '🏆 LEADERBOARD', {
+        fontFamily: 'Arial Black',
+        fontSize: 17,
+        color: '#ffffff',
+        backgroundColor: '#2a2a2a',
+        padding: { x: 18, y: 7 },
+      })
+      .setOrigin(0.5)
+      .setScale(s)
+      .setAlpha(0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openLeaderboard());
+    put(lbBtn);
+
     // shop is one tap away, never a wall of text here
     const shopHint = this.add
       .text(width / 2, height * 0.70, `🛒 supply shack  ·  you have 🪙 ${this.grit}`, {
@@ -1767,7 +1798,7 @@ export class Game extends Scene {
       .setScale(s)
       .setAlpha(0);
     put(again);
-    const fadeIns = [title, stats, best, epLabel, shopHint, brag, again, ...epButtons];
+    const fadeIns = [title, stats, best, epLabel, lbBtn, shopHint, brag, again, ...epButtons];
     if (instant) {
       for (const t of fadeIns) t.setAlpha(1);
       again.setInteractive({ useHandCursor: true }).once('pointerdown', () => this.restartRun());
@@ -2241,7 +2272,9 @@ export class Game extends Scene {
         .text(
           width / 2,
           height * 0.245,
-          `⛏️ ${(this.holeDepthCm / 100).toFixed(1)}m deep  ·  ${this.allTimeDiggers} diggers`,
+          this.initLoaded
+            ? `⛏️ ${(this.holeDepthCm / 100).toFixed(1)}m deep  ·  ${this.allTimeDiggers} diggers`
+            : 'measuring the hole…',
           { fontFamily: 'Arial Black', fontSize: 17, color: '#54d16a' }
         )
         .setOrigin(0.5)
@@ -2249,7 +2282,9 @@ export class Game extends Scene {
     );
 
     // middle block: a short tutorial for newcomers, a warm welcome-back for regulars
-    const body = isNew
+    const body = !this.initLoaded
+      ? '\npreparing your descent…'
+      : isNew
       ? [
           'Tap the glowing row to dig down.',
           'Every swing costs O₂ — 🧰 crates refill it,',
@@ -2315,6 +2350,7 @@ export class Game extends Scene {
         .once('pointerdown', () => {
           for (const obj of this.coachGroup) obj.destroy();
           this.coachGroup = [];
+          this.running = true; // the descent begins — digging is now live
           // newcomers get a few guiding hints by the live row as they begin
           if (isNew) this.showOnboarding();
         })

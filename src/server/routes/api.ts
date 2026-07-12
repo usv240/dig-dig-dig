@@ -766,6 +766,12 @@ api.post('/run-end', async (c) => {
     const yourBest = Math.max(prev ?? 0, depthCm);
     const top = await redis.zRange(key, 0, 0, { by: 'rank', reverse: true });
     const topName = top[0] ? ((await redis.hGet('lb:names', top[0].member)) ?? who.name) : who.name;
+    // your standing on today's board (whole field, not just the visible top)
+    const [ascRank, total] = await Promise.all([
+      redis.zRank(key, who.uid).catch(() => undefined),
+      redis.zCard(key).catch(() => 0),
+    ]);
+    const yourRank = ascRank !== undefined ? total - ascRank : 0;
 
     // day streak: consecutive days with at least one run
     let streak = meta.streak;
@@ -829,6 +835,8 @@ api.post('/run-end', async (c) => {
       streak,
       isPB,
       bestRunCm,
+      yourRank,
+      total,
       ach,
     });
   } catch (error) {
