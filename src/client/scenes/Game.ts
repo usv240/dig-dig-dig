@@ -1043,7 +1043,7 @@ export class Game extends Scene {
         this.refreshHud();
         this.connectLive(data.postId);
         void this.loadEpitaphs();
-        if (data.yourDigsCm === 0) this.showCoach();
+        this.showHome(data.yourDigsCm === 0);
         this.time.delayedCall(600, () => this.warnRowGas());
       } catch (error) {
         console.error('Failed to fetch initial state:', error);
@@ -2194,68 +2194,128 @@ export class Game extends Scene {
   // COACH — a one-time welcome for brand-new players
   // ------------------------------------------------------------------
 
-  showCoach() {
+  /**
+   * The home screen — the first thing every player sees when the post opens,
+   * before any digging begins. Oxygen only drains on taps and routeTap ignores
+   * taps while coachGroup is open, so nothing is lost while this is up. New
+   * players get a short tutorial; everyone gets one-tap access to the
+   * leaderboard and help before they start.
+   */
+  showHome(isNew: boolean) {
     if (this.coachGroup.length > 0) return;
     const width = this.vw;
     const height = this.vh;
     const s = Math.min(width / 640, 1);
-    const dim = this.add
-      .rectangle(0, 0, width, height, 0x0a0a0a, 0.93)
-      .setOrigin(0)
-      .setInteractive();
-    const title = this.add
-      .text(width / 2, height * 0.13, 'WELCOME, DIGGER', {
-        fontFamily: 'Arial Black',
-        fontSize: 30,
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 6,
-      })
-      .setOrigin(0.5)
-      .setScale(s);
-    const body = [
-      "We're all digging ONE endless hole.",
-      'Every tap makes it deeper — forever.',
-      '',
-      'Tap the glowing row to dig. Watch your O₂.',
-      'Grab treasure, dodge gas, beat your own record.',
-      '',
-      'Up top: 🏆 daily ranks   🛒 spend grit on gear   🏛️ treasures',
-      '',
-      'Come back daily — your streak multiplies grit,',
-      'and the hole keeps growing while you are gone.',
-      '',
-      '🐤 that is Pip. Keep the community digging',
-      'or the little guy faints.',
-    ].join('\n');
-    const text = this.add
-      .text(width / 2, height * 0.5, body, {
-        fontFamily: 'Arial',
-        fontSize: 18,
-        color: '#f0ead8',
-        align: 'center',
-        lineSpacing: 5,
-        wordWrap: { width: (width * 0.9) / s },
-      })
-      .setOrigin(0.5)
-      .setScale(s);
-    const maxH = height * 0.62;
+    const group: Phaser.GameObjects.GameObject[] = [];
+    const put = <T extends Phaser.GameObjects.GameObject>(o: T): T => {
+      group.push(o);
+      return o;
+    };
+
+    put(this.add.rectangle(0, 0, width, height, 0x0a0a0a, 0.95).setOrigin(0).setInteractive());
+    put(
+      this.add
+        .text(width / 2, height * 0.12, 'DIG DIG DIG', {
+          fontFamily: 'Arial Black',
+          fontSize: 40,
+          color: '#ffd700',
+          stroke: '#000000',
+          strokeThickness: 7,
+        })
+        .setOrigin(0.5)
+        .setScale(s)
+    );
+    put(
+      this.add
+        .text(width / 2, height * 0.185, 'we are all digging ONE big hole.', {
+          fontFamily: 'Arial',
+          fontSize: 18,
+          color: '#f0ead8',
+        })
+        .setOrigin(0.5)
+        .setScale(s)
+    );
+    put(
+      this.add
+        .text(
+          width / 2,
+          height * 0.245,
+          `⛏️ ${(this.holeDepthCm / 100).toFixed(1)}m deep  ·  ${this.allTimeDiggers} diggers`,
+          { fontFamily: 'Arial Black', fontSize: 17, color: '#54d16a' }
+        )
+        .setOrigin(0.5)
+        .setScale(s)
+    );
+
+    // middle block: a short tutorial for newcomers, a warm welcome-back for regulars
+    const body = isNew
+      ? [
+          'Tap the glowing row to dig down.',
+          'Every swing costs O₂ — 🧰 crates refill it,',
+          '☠️ gas drains it. Grab 💎, beat your record.',
+          '',
+          'The hole never resets. Come back daily —',
+          'your 🔥 streak multiplies your reward.',
+        ].join('\n')
+      : [
+          `Welcome back.${this.streak > 1 ? `   🔥 ${this.streak}-day streak` : ''}`,
+          `Your best run: ${(this.bestRunCm / 100).toFixed(1)}m`,
+          '',
+          "Today's mine is fresh. How deep can you get",
+          'on one tank of air?',
+        ].join('\n');
+    const text = put(
+      this.add
+        .text(width / 2, height * 0.44, body, {
+          fontFamily: 'Arial',
+          fontSize: 17,
+          color: '#e8e0c8',
+          align: 'center',
+          lineSpacing: 6,
+          wordWrap: { width: (width * 0.9) / s },
+        })
+        .setOrigin(0.5)
+        .setScale(s)
+    );
+    const maxH = height * 0.24;
     if (text.height * s > maxH) text.setScale((s * maxH) / (text.height * s));
-    const go = this.add
-      .text(width / 2, height * 0.88, "⛏️ LET'S DIG", {
-        fontFamily: 'Arial Black',
-        fontSize: 26,
-        color: '#111111',
-        backgroundColor: '#ffd700',
-        padding: { x: 26, y: 10 },
-      })
-      .setOrigin(0.5)
-      .setScale(s)
-      .setInteractive({ useHandCursor: true })
-      .once('pointerdown', () => {
-        for (const obj of this.coachGroup) obj.destroy();
-        this.coachGroup = [];
-      });
+
+    // menu: the leaderboard and help are reachable before you ever dig
+    const mkMenu = (y: number, label: string, onTap: () => void) =>
+      put(
+        this.add
+          .text(width / 2, height * y, label, {
+            fontFamily: 'Arial Black',
+            fontSize: 19,
+            color: '#ffffff',
+            backgroundColor: '#2a2a2a',
+            padding: { x: 20, y: 9 },
+          })
+          .setOrigin(0.5)
+          .setScale(s)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', onTap)
+      );
+    mkMenu(0.6, '🏆 LEADERBOARD', () => this.openLeaderboard());
+    mkMenu(0.685, '❓ HOW TO PLAY', () => this.openHelp());
+
+    const go = put(
+      this.add
+        .text(width / 2, height * 0.85, '⛏️ START DIGGING', {
+          fontFamily: 'Arial Black',
+          fontSize: 28,
+          color: '#111111',
+          backgroundColor: '#ffd700',
+          padding: { x: 30, y: 12 },
+        })
+        .setOrigin(0.5)
+        .setScale(s)
+        .setInteractive({ useHandCursor: true })
+        .once('pointerdown', () => {
+          for (const obj of this.coachGroup) obj.destroy();
+          this.coachGroup = [];
+        })
+    );
     this.tweens.add({
       targets: go,
       scale: { from: s, to: s * 1.06 },
@@ -2263,7 +2323,7 @@ export class Game extends Scene {
       repeat: -1,
       duration: 550,
     });
-    this.coachGroup = [dim, title, text, go];
+    this.coachGroup = group;
   }
 
   // ------------------------------------------------------------------
@@ -3077,7 +3137,7 @@ export class Game extends Scene {
     if (this.coachGroup.length > 0) {
       for (const obj of this.coachGroup) obj.destroy();
       this.coachGroup = [];
-      this.showCoach(); // rebuild at the new size
+      this.showHome(this.yourDigsCm === 0); // rebuild at the new size
     }
     this.clearOnboarding();
 
