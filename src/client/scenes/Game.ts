@@ -152,6 +152,9 @@ export class Game extends Scene {
   lastTapMs = 0;
   multiplier = 1;
 
+  // one center announcement at a time — score beats never stack over the row
+  announceText: Phaser.GameObjects.Text | null = null;
+
   // live layer
   diggers = 1;
   lastPeerToastMs = 0;
@@ -780,12 +783,13 @@ export class Game extends Scene {
 
     this.vignette = this.add.image(width / 2, height / 2, 'vignette').setAlpha(0.7);
 
-    // the "you dig HERE" frame around the active row
+    // the "you dig HERE" frame around the active row — a bold gold band so the
+    // live row is never in doubt (a faint fill separates it from the rows below)
     this.rowFrame = this.add
       .rectangle(0, 0, 10, 10)
       .setOrigin(0)
-      .setFillStyle(0x000000, 0)
-      .setStrokeStyle(3, 0xffffff, 0.9);
+      .setFillStyle(0xffd700, 0.07)
+      .setStrokeStyle(4, 0xffd700, 1);
 
     // 🐤 Pip, the community's canary, perched above the action
     const perch = this.add.rectangle(0, 12, 34, 3, 0x5a4632).setOrigin(0.5);
@@ -830,7 +834,7 @@ export class Game extends Scene {
     });
     this.tweens.add({
       targets: this.rowFrame,
-      alpha: { from: 0.9, to: 0.35 },
+      alpha: { from: 1, to: 0.62 },
       yoyo: true,
       repeat: -1,
       duration: 700,
@@ -1041,6 +1045,7 @@ export class Game extends Scene {
         this.applyCanaryState();
         this.setO2(this.maxO2());
         this.refreshHud();
+        this.updateLight(); // now that gear (headlamp) is known
         this.connectLive(data.postId);
         void this.loadEpitaphs();
         this.showHome(data.yourDigsCm === 0);
@@ -1380,7 +1385,6 @@ export class Game extends Scene {
     if (tile.type === 'gem') {
       bonus = gemBonus + ROW_CM;
       this.runFinds += 1;
-      this.cameras.main.flash(150, 120, 220, 255);
       this.floatText(pointer.worldX, pointer.worldY - 50, `GEM! +${gemBonus} cm`, '#7de3ff', 26);
       this.chime('rare');
     } else if (tile.type === 'chest') {
@@ -1438,18 +1442,16 @@ export class Game extends Scene {
     this.checkGraves();
 
     // --- score beats: run milestones + the PB moment ---
-    const w = this.vw;
-    const h = this.vh;
     const mile = Math.floor(this.runDepthCm / 1000);
     if (mile > this.runMilestone) {
       this.runMilestone = mile;
-      this.floatText(w / 2, h * 0.4, `🎯 ${mile * 10}m RUN!`, '#7dffa0', 30);
+      this.announce(`🎯 ${mile * 10}m RUN!`, '#7dffa0', 30);
       this.chime('uncommon');
     }
     if (!this.pbAnnounced && this.bestRunCm > 0 && this.runDepthCm > this.bestRunCm) {
       this.pbAnnounced = true;
       this.cameras.main.flash(300, 255, 215, 0);
-      this.floatText(w / 2, h * 0.45, '🏆 NEW PERSONAL BEST! 🏆', '#ffd700', 34);
+      this.announce('🏆 NEW PERSONAL BEST!', '#ffd700', 34);
       this.chime('legendary');
     }
 
@@ -1484,17 +1486,15 @@ export class Game extends Scene {
     this.time.delayedCall(260, () => this.warnRowGas());
     // teach new players what each material is, the first time they meet it
     this.checkNewItems();
+    // the tunnel closes in as you descend (headlamp pushes the dark back)
+    this.updateLight();
 
     // level up?
     const level = Math.floor(this.activeRow / ROWS_PER_LEVEL);
     if (level > this.runLevel) {
       this.runLevel = level;
-      const width = this.vw;
-    const height = this.vh;
-      this.cameras.main.flash(250, 255, 255, 255);
       this.chime('epic');
-      this.floatText(width / 2, height * 0.45, `⬇️ LEVEL ${level + 1} ⬇️`, '#ffd700', 38);
-      this.floatText(width / 2, height * 0.52, 'deeper. richer. gassier.', '#ffffff', 18);
+      this.announce(`⬇️ LEVEL ${level + 1}\ndeeper · richer · gassier`, '#ffd700', 30);
     }
   }
 
@@ -1826,6 +1826,7 @@ export class Game extends Scene {
     this.hintText.setVisible(true).setAlpha(0.9);
     this.running = true;
     this.setO2(this.maxO2());
+    this.updateLight(); // back to the surface — tunnel is bright again
     this.cameras.main.flash(250, 255, 255, 255);
     void this.loadEpitaphs();
     this.time.delayedCall(500, () => this.warnRowGas());
@@ -2314,6 +2315,8 @@ export class Game extends Scene {
         .once('pointerdown', () => {
           for (const obj of this.coachGroup) obj.destroy();
           this.coachGroup = [];
+          // newcomers get a few guiding hints by the live row as they begin
+          if (isNew) this.showOnboarding();
         })
     );
     this.tweens.add({
@@ -2666,7 +2669,10 @@ export class Game extends Scene {
       if (event.uid === this.uid) return;
       this.animateDepthTo(event.depthCm, 700);
       const now = this.time.now;
-      if (now - this.lastPeerToastMs > 4000) {
+      // don't distract a player mid-dig with the peer ticker; the depth
+      // counter above still climbs, so their presence is felt regardless
+      const busy = this.running && now - this.lastTapMs < 5000;
+      if (!busy && now - this.lastPeerToastMs > 4000) {
         this.lastPeerToastMs = now;
         this.peerToast(`⛏️ u/${event.user} is digging…`, '#c9c9c9');
       }
@@ -2945,6 +2951,55 @@ export class Game extends Scene {
   // SMALL HELPERS
   // ------------------------------------------------------------------
 
+  /**
+   * The headlamp effect: the tunnel closes in the deeper you dig (the vignette
+   * darkens with run depth), and the Headlamp gear pushes the dark back so you
+   * see more. The active row sits in the spotlight's clear center, so it stays
+   * readable no matter how dark the edges get; the HUD draws above the vignette.
+   */
+  updateLight() {
+    const depthT = Phaser.Math.Clamp(this.runDepthCm / 8000, 0, 1); // ramps over ~80m
+    let a = 0.5 + depthT * 0.38; // shallow ≈ 0.50 → deep ≈ 0.88
+    if (this.gear.lamp) a -= 0.2; // the headlamp keeps the tunnel brighter
+    this.vignette.setAlpha(Phaser.Math.Clamp(a, 0.34, 0.9));
+  }
+
+  /**
+   * A big score beat (milestone / PB / level-up) shown ONE at a time, high on
+   * the screen so it never buries the row you're digging. A new beat replaces
+   * the previous one instead of stacking — the core "calm the screen" rule.
+   */
+  announce(message: string, color: string, size: number) {
+    if (this.announceText) {
+      this.announceText.destroy();
+      this.announceText = null;
+    }
+    const t = this.add
+      .text(this.vw / 2, this.vh * 0.3, message, {
+        fontFamily: 'Arial Black',
+        fontSize: size,
+        color,
+        stroke: '#000000',
+        strokeThickness: 6,
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    const fit = Math.min(1, (this.vw * 0.94) / t.width);
+    t.setScale(fit);
+    this.announceText = t;
+    this.tweens.add({ targets: t, scale: { from: fit * 0.7, to: fit }, duration: 180, ease: 'Back.easeOut' });
+    this.tweens.add({
+      targets: t,
+      alpha: { from: 1, to: 0 },
+      delay: 950,
+      duration: 400,
+      onComplete: () => {
+        if (this.announceText === t) this.announceText = null;
+        t.destroy();
+      },
+    });
+  }
+
   floatText(x: number, y: number, message: string, color: string, size: number) {
     const t = this.add
       .text(x, y, message, {
@@ -3099,9 +3154,11 @@ export class Game extends Scene {
   updateLayout(width: number, height: number) {
     // camera viewport + zoom are owned by setupView(); don't resize it here
     this.wall.setSize(width, height);
+    // the headlamp spotlight sits on the row you're digging, not screen-center
     this.vignette
-      .setPosition(width / 2, height / 2)
-      .setDisplaySize(width * 1.35, height * 1.35);
+      .setPosition(width / 2, this.anchorY + this.tileSize / 2)
+      .setDisplaySize(Math.max(width, height) * 1.9, Math.max(width, height) * 1.9);
+    this.updateLight();
 
     // re-fit the tile grid; if tile size changed, respawn the seeded world at the new size
     const prevTile = this.tileSize;
