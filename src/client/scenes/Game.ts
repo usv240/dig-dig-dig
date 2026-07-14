@@ -1,6 +1,6 @@
 import { Scene } from 'phaser';
 import * as Phaser from 'phaser';
-import { connectRealtime } from '@devvit/web/client';
+import { connectRealtime, showForm } from '@devvit/web/client';
 import { UI_DPR } from '../game';
 import type {
   BuyResponse,
@@ -1073,6 +1073,9 @@ export class Game extends Scene {
     })();
 
     this.time.addEvent({ delay: SYNC_MS, loop: true, callback: () => void this.sync() });
+    // a lingered-on death screen keeps its "fresh mine in…" countdown honest
+    // (fillDeathSummary no-ops unless the payday block is actually on screen)
+    this.time.addEvent({ delay: 60_000, loop: true, callback: () => this.fillDeathSummary() });
     this.runStartMs = this.time.now;
 
     // gems in the live row glint — the eye finds treasure before the brain does
@@ -1591,12 +1594,20 @@ export class Game extends Scene {
         this.bestRunCm = data.bestRunCm;
         this.achievements = data.ach;
         this.refreshHud();
-        this.deathBestText?.setText(this.deathSummary());
+        this.fillDeathSummary();
         if (data.isPB || earned.length > 0) this.chime('epic');
       } catch {
         /* leaderboard is optional */
       }
     })();
+  }
+
+  /** Fill the payday block, clamped so it never collides with its neighbors. */
+  fillDeathSummary() {
+    const t = this.deathBestText;
+    if (!t || !t.active) return;
+    t.setText(this.deathSummary());
+    this.fitTextHeight(t, Math.min(this.vw / 640, 1), this.vh * 0.15);
   }
 
   /** The payday block on the death screen. */
@@ -1611,6 +1622,20 @@ export class Game extends Scene {
       `your best: ${(d.bestRunCm / 100).toFixed(1)}m${d.isPB ? '  🏆 NEW PB!' : ''}`,
       `💰 +${d.gritEarned} grit${d.streak > 1 ? `  ·  🔥 ${d.streak}-day streak` : ''}`
     );
+    // the pull to return: a fresh seed is always on its way, streak on the line.
+    // Day math mirrors the server's (currentDayNum): if the run's pinned day is
+    // already over, the new mine exists RIGHT NOW — say so instead of counting.
+    if (currentDayNum() > this.runDayNum) {
+      lines.push('✨ a FRESH MINE is ready — dig again!');
+    } else {
+      const minsLeft = Math.max(
+        1,
+        Math.floor(((this.runDayNum + 1) * 86_400_000 - Date.now()) / 60_000)
+      );
+      lines.push(
+        `⏳ fresh mine in ${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m — 🔥 return to grow your streak`
+      );
+    }
     if (this.newMedals.length > 0) {
       lines.push(
         `🏅 ${this.newMedals.map((id) => `${ACHIEVEMENTS[id]?.emoji} ${ACHIEVEMENTS[id]?.name}`).join('   ')}`
@@ -1664,7 +1689,7 @@ export class Game extends Scene {
       .setAlpha(0);
     put(stats);
     const best = this.add
-      .text(width / 2, height * 0.365, this.deathSummary(), {
+      .text(width / 2, height * 0.365, '', {
         fontFamily: 'Arial Black',
         fontSize: 17,
         color: '#ffd700',
@@ -1676,6 +1701,8 @@ export class Game extends Scene {
       .setAlpha(0);
     put(best);
     this.deathBestText = best;
+    // one fill path for first paint AND the resize rebuild: text + height clamp
+    this.fillDeathSummary();
 
     // one small optional act: last words (tap to bury, or ignore)
     const epLabel = this.add
@@ -1775,14 +1802,7 @@ export class Game extends Scene {
       .setScale(s)
       .setAlpha(0);
     if (bragWorthy) {
-      brag.setInteractive({ useHandCursor: true }).once('pointerdown', () => {
-        brag.setText('💬 posted to the score board!').disableInteractive();
-        void fetch('/api/brag', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depthCm: this.runDepthCm }),
-        });
-      });
+      brag.setInteractive({ useHandCursor: true }).on('pointerdown', () => void this.postRun(brag));
     }
     put(brag);
 
@@ -1817,6 +1837,75 @@ export class Game extends Scene {
       repeat: -1,
       duration: 550,
     });
+  }
+
+  /**
+   * "Post my run" — a native Reddit form confirms exactly what will be posted
+   * and offers an optional message. A plain score joins the pinned score
+   * thread; add your own words and it posts as its own top-level comment (the
+   * documented pattern for score comments with meaningful commentary). Always
+   * posted from the player's account, and ONLY on an explicit form submit —
+   * cancel, dismissal, or any error posts nothing. The button disables itself
+   * while the form is open (button-owned guard: no scene state to leak) and
+   * only reports "posted!" when the server confirms it actually posted.
+   */
+  async postRun(btn: Phaser.GameObjects.Text) {
+    btn.disableInteractive();
+    const depthCm = this.runDepthCm;
+    try {
+      const res = await showForm({
+        title: 'Post your run as a comment',
+        description: `⛏️ ${(depthCm / 100).toFixed(1)}m in one breath — posted from your account.`,
+        acceptLabel: 'Post comment',
+        fields: [
+          {
+            type: 'paragraph',
+            name: 'note',
+            label: 'Add your own words (optional)',
+            helpText:
+              'With a message, your run posts as its own comment. Without one, it joins the pinned score thread.',
+          },
+        ],
+      });
+      if (res.action !== 'SUBMITTED') {
+        // canceled — post nothing, allow another try
+        if (btn.active) btn.setInteractive({ useHandCursor: true });
+        return;
+      }
+      const note = (res.values.note ?? '').trim().slice(0, 200);
+      const posted = await this.postBrag(note ? { depthCm, note } : { depthCm });
+      // the death screen may have been rebuilt (resize) while the form was open
+      if (!btn.active) return;
+      if (posted) {
+        btn.setText('💬 posted!');
+      } else {
+        btn.setText('💬 not posted — try again in a minute');
+        btn.setInteractive({ useHandCursor: true });
+      }
+    } catch {
+      // the form couldn't open (or was dismissed with a rejection) — the user
+      // never consented to anything, so post NOTHING and let them retry
+      if (btn.active) {
+        btn.setText('💬 Post my run as a comment');
+        btn.setInteractive({ useHandCursor: true });
+      }
+    }
+  }
+
+  /** POST the score comment; true only if the server confirms it posted. */
+  async postBrag(body: { depthCm: number; note?: string }): Promise<boolean> {
+    try {
+      const response = await fetch('/api/brag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) return false;
+      const data = (await response.json()) as { ok?: boolean };
+      return data.ok === true;
+    } catch {
+      return false;
+    }
   }
 
   restartRun() {
@@ -2202,8 +2291,7 @@ export class Game extends Scene {
       .setOrigin(0.5)
       .setScale(s);
     // if it's too tall for the frame, shrink to fit
-    const maxH = height * 0.78;
-    if (text.height * s > maxH) text.setScale((s * maxH) / (text.height * s));
+    this.fitTextHeight(text, s, height * 0.78);
     const close = this.add
       .text(width / 2, height * 0.93, '✕ GOT IT', {
         fontFamily: 'Arial Black',
@@ -2313,8 +2401,7 @@ export class Game extends Scene {
         .setOrigin(0.5)
         .setScale(s)
     );
-    const maxH = height * 0.24;
-    if (text.height * s > maxH) text.setScale((s * maxH) / (text.height * s));
+    this.fitTextHeight(text, s, height * 0.24);
 
     // menu: the leaderboard and help are reachable before you ever dig
     const mkMenu = (y: number, label: string, onTap: () => void) =>
@@ -3104,6 +3191,11 @@ export class Game extends Scene {
   /** Cap a text object's scale so it never runs past `maxW` on-screen. */
   fitText(obj: Phaser.GameObjects.Text, maxW: number) {
     obj.setScale(obj.width > 0 ? Math.min(this.hudScale, maxW / obj.width) : this.hudScale);
+  }
+
+  /** Scale a text to `s`, shrinking further if its height would exceed `maxH`. */
+  fitTextHeight(obj: Phaser.GameObjects.Text, s: number, maxH: number) {
+    obj.setScale(obj.height > 0 ? Math.min(s, maxH / obj.height) : s);
   }
 
   refreshHud() {

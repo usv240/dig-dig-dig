@@ -45,6 +45,8 @@ protection. The community keeps the bird alive; the bird keeps the community ali
   passing it turns the counter gold mid-run.
 - **Meta-progression** — Grit buys permanent gear (O₂ Tank, Headlamp, Gem Magnet,
   Gas Mask, Espresso) that makes every future run deeper.
+- **The blackout screen counts down to tomorrow's mine** — "fresh mine in 7h 12m,
+  return to grow your streak." The moment a run ends, the next one is already calling.
 - **📜 The lore** — the deeper you go, the stranger the hole gets. At 60m there is a door.
   It is locked. The community is welcome to theorize.
 
@@ -67,9 +69,13 @@ protection. The community keeps the bird alive; the bird keeps the community ali
 - **Epitaphs** — when you black out, your last words are buried at your death depth.
   Other players dig past your grave in that day's mine.
 - **The Museum** — every treasure ever found, with the finder's username, forever.
-- **Post your run** — an explicit, optional button on the blackout screen posts your
-  score from your own account as a reply to a single pinned score-board comment. Player
-  led, never automated.
+- **Post your run, in your own words** — an explicit, optional button opens a native
+  form: a plain score joins the single pinned score-board thread; add your own message
+  and it posts as its own top-level comment from your account. Player-authored
+  conversation in the thread, never automated — exactly Reddit's recommended pattern.
+- **Player-authored content is woven into the world** — epitaphs are the clearest case:
+  your last words, buried at your death depth, are discovered by other players as they
+  dig past your grave. The mine is literally littered with things other humans wrote.
 - **Live presence** — see how many are digging right now; watch the counter climb in
   realtime as strangers dig; shared milestone celebrations fire for everyone at once.
 
@@ -120,7 +126,7 @@ any editor (CapCut/Clipchamp). Game audio ON — the crunches sell it.
 | 30–36s | Bury an epitaph → cut to another player finding the grave | **"Your last words stay buried where you fell."** |
 | 36–43s | Leaderboard top-10, then your rank flair on a comment; the Pip canary on the HUD | **"Daily race. Real flair. A canary the whole sub keeps alive."** |
 | 43–50s | Run counter turns gold: NEW PERSONAL BEST → THE DOOR event | **"And 60 meters down… there's a door."** |
-| 50–55s | Splash card again, depth higher than the opening shot | **"DIG DIG DIG — built on Devvit + Phaser."** |
+| 50–55s | Splash card again, depth higher than the opening shot | **"No art files. No audio files. Every pixel & sound generated in code. DIG DIG DIG — Devvit + Phaser."** |
 
 Recording tips: do a few practice runs to get a ×5 combo take; capture The Door by
 using a strong gear loadout; the opening/closing splash shots prove the hole grew
